@@ -4,17 +4,66 @@ import numpy as np
 import time
 import sys
 from darkflow.net.build import TFNet
+from math import sqrt
 
 (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
 
 skip_tracker_init = 0
 failure = 1
+yolo_init = True
 
     # Set up tracker.
     # Instead of MIL, you can also use
  
 tracker_types = ['BOOSTING', 'MIL','KCF', 'TLD', 'MEDIANFLOW', 'GOTURN']
-tracker_type = tracker_types[0]
+tracker_type = tracker_types[1]
+
+
+
+# Load a sample picture and learn how to recognize it.
+obama_image = face_recognition.load_image_file("./faces/obama.jpg")
+obama_face_encoding = face_recognition.face_encodings(obama_image)[0]
+
+# Load a second sample picture and learn how to recognize it.
+biden_image = face_recognition.load_image_file("./faces/biden.jpg")
+biden_face_encoding = face_recognition.face_encodings(biden_image)[0]
+
+# Load a custom sample picture and learn how to recognize it.
+p7rox_image = face_recognition.load_image_file("./faces/p7rox.jpg")
+p7rox_face_encoding = face_recognition.face_encodings(p7rox_image)[0]
+
+# Load a custom sample picture and learn how to recognize it.
+aman_image = face_recognition.load_image_file("./faces/aman.jpg")
+aman_face_encoding = face_recognition.face_encodings(aman_image)[0]
+
+# Create arrays of known face encodings and their names
+known_face_encodings = [
+    obama_face_encoding,
+    biden_face_encoding,
+    p7rox_face_encoding,
+    aman_face_encoding,
+    jay_face_encoding
+]
+known_face_names = [
+    "Barack Obama",
+    "Joe Biden",
+    "Prajwal Goswami",
+    "Aman Tanwar",
+    "Jay"
+]
+
+trackObj = [
+   "person" 
+]
+options = {
+    'model': 'darkflow_repo/cfg/tiny-yolo-voc.cfg',
+    'load': 'darkflow_repo/bin/tiny-yolo-voc.weights',
+    'threshold': 0.2,
+    'gpu': 0.7
+}
+
+colors = [tuple(255 * np.random.rand(3)) for _ in range(10)]
+
 
 def tracker_init(frame, bbox) :
 
@@ -43,7 +92,7 @@ def tracker_init(frame, bbox) :
     ok = tracker.init(frame, bbox)
     return ok
  
-def tracker_final(frame) :
+def tracker_final(frame, identity) :
     global failure
     global tracker
 
@@ -63,6 +112,7 @@ def tracker_final(frame) :
         p1 = (int(bbox[0]), int(bbox[1]))
         p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
         cv2.rectangle(frame, p1, p2, (255,0,0), 2, 1)
+        cv2.putText(frame, identity, p1, cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 0), 2)
         failure = 0
         print("tracker success")
     else :
@@ -80,44 +130,13 @@ def tracker_final(frame) :
     # Display result
     return frame
 
-
-# Load a sample picture and learn how to recognize it.
-obama_image = face_recognition.load_image_file("../faces/obama.jpg")
-obama_face_encoding = face_recognition.face_encodings(obama_image)[0]
-
-# Load a second sample picture and learn how to recognize it.
-biden_image = face_recognition.load_image_file("../faces/biden.jpg")
-biden_face_encoding = face_recognition.face_encodings(biden_image)[0]
-
-# Load a custom sample picture and learn how to recognize it.
-p7rox_image = face_recognition.load_image_file("../faces/p7rox.jpg")
-p7rox_face_encoding = face_recognition.face_encodings(p7rox_image)[0]
-
-# Load a custom sample picture and learn how to recognize it.
-aman_image = face_recognition.load_image_file("../faces/aman.jpg")
-aman_face_encoding = face_recognition.face_encodings(aman_image)[0]
-
-# Create arrays of known face encodings and their names
-known_face_encodings = [
-    obama_face_encoding,
-    biden_face_encoding,
-    p7rox_face_encoding,
-    aman_face_encoding
-]
-known_face_names = [
-    "Barack Obama",
-    "Joe Biden",
-    "Prajwal Goswami",
-    "Aman Tanwar"
-]
-
-
 def facRec(roi, frame, tl, br) :
 
     # Initialize some variables
     face_locations = []
     face_encodings = []
     face_names = []
+    major_face_length = 0
 
 
     # Resize frame of video to 1/4 size for faster face recognition processing
@@ -131,7 +150,7 @@ def facRec(roi, frame, tl, br) :
     face_locations = face_recognition.face_locations(rgb_small_frame)
     face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
     face_names = []
-    boxIdentity = "Unknown"
+    boxIdentity = "Unknown Person"
     for face_encoding in face_encodings:
         # See if the face is a match for the known face(s)
         matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
@@ -148,6 +167,7 @@ def facRec(roi, frame, tl, br) :
     # Display the results
     for (top, right, bottom, left), name in zip(face_locations, face_names):
         # Scale back up face locations since the frame we detected in was scaled to 1/4 size
+        diag_length = sqrt( (left - right)**2 + (bottom - top)**2 )
         top *= 4
         top += tl[1]
         right *= 4
@@ -164,74 +184,60 @@ def facRec(roi, frame, tl, br) :
         cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
         font = cv2.FONT_HERSHEY_DUPLEX
         cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
-        boxIdentity = name
+        if diag_length > major_face_length :
+            boxIdentity = name
+            major_face_length = diag_length
 
     return frame, boxIdentity
 
+def yolo(frame, unt_frame) :
+    global failure
+    # global frame
+    # global unt_frame
+    global text
+    global options
+    global yolo_init
+    global tfnet
+    if (failure == 1) :
+        print("failure dectected")
+        if yolo_init :
+            print(yolo_init)
+            tfnet = TFNet(options)
+            yolo_init = False
+        results = tfnet.return_predict(frame)
+        for color, result in zip(colors, results):
+            tl = (result['topleft']['x'], result['topleft']['y'])
+            br = (result['bottomright']['x'], result['bottomright']['y'])
+            label = result['label']
+            confidence = result['confidence']
+            if label not in trackObj :
+                continue
+            if confidence > 0.2:
+                roi = frame[tl[1]:br[1], tl[0]:br[0]]
+            else :
+                continue
+            frame, text = facRec(roi, frame, tl, br)
+            if text not in known_face_names :
+            #if (text=="Prajwal Goswami") :
+                pass
+            else :
+                continue
+            #text = '{}: {:.0f}%'.format(label, confidence * 100)
+            #frame = cv2.rectangle(frame, tl, br, color, 5)
+            #frame = cv2.putText(frame, text, tl, cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 0), 2)
+            bbox = (tl[0], tl[1], br[0]-tl[0], br[1]-tl[1])
+            print (bbox)
+            print (str(br[1]) + "  sdd  " + str((br[1]-tl[1])))
+            print (str(br[0]) + "  sdd  " + str((br[0]-tl[0])))
+            print(failure)
+            ok = tracker_init(unt_frame, bbox)
+            if (ok) :
+               break
+            print(failure)
 
+    if (failure == 0) :
+        trackFrame = tracker_final(unt_frame, text)
+    else :
+        trackFrame = unt_frame
 
-
-
-
-
-
-options = {
-    'model': 'cfg/tiny-yolo-voc.cfg',
-    'load': 'bin/tiny-yolo-voc.weights',
-    'threshold': 0.2,
-    'gpu': 0.7
-}
-
-tracker_init_status = 0
-
-tfnet = TFNet(options)
-colors = [tuple(255 * np.random.rand(3)) for _ in range(10)]
-
-capture = cv2.VideoCapture(0)
-capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-
-while True:
-    stime = time.time()
-    ret, unt_frame = capture.read()
-    frame = unt_frame
-    print("new frame")
-    if ret:
-        if (failure == 1) :
-            print("failure dectected")
-            results = tfnet.return_predict(frame)
-            for color, result in zip(colors, results):
-                tl = (result['topleft']['x'], result['topleft']['y'])
-                br = (result['bottomright']['x'], result['bottomright']['y'])
-                label = result['label']
-                confidence = result['confidence']
-                if confidence > 0.2:
-                    roi = frame[tl[1]:br[1], tl[0]:br[0]]
-                else :
-                    continue
-                frame, text = facRec(roi, frame, tl, br)
-                #text = '{}: {:.0f}%'.format(label, confidence * 100)
-                frame = cv2.rectangle(frame, tl, br, color, 5)
-                frame = cv2.putText(frame, text, tl, cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 0), 2)
-                bbox = (tl[0], tl[1], br[0]-tl[0], br[1]-tl[1])
-                print (bbox)
-                print (str(br[1]) + "  sdd  " + str((br[1]-tl[1])))
-                print (str(br[0]) + "  sdd  " + str((br[0]-tl[0])))
-                print(failure)
-                ok = tracker_init(unt_frame, bbox)
-                if (ok) :
-                   break
-                print(failure)
-
-        if (failure == 0) :
-            trackFrame = tracker_final(unt_frame)
-        else :
-            trackFrame = unt_frame
-
-        cv2.imshow('frame', trackFrame)
-        print('FPS {:.1f}'.format(1 / (time.time() - stime)))
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-capture.release()
-cv2.destroyAllWindows()
+    return trackFrame
